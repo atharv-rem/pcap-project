@@ -78,7 +78,9 @@ for run in "${RUNS[@]}"; do
 
     echo "[$i/${#RUNS[@]}] np=$np mode=$mode rep=$rep -> $out"
     # shellcheck disable=SC2086  # EXTRA / flags are meant to be split into words
-    mpirun $ROOT_FLAG $OVERSUB -np "$np" build/flood_mpi \
+    # --use-hwthread-cpus: without it Open MPI allows only as many ranks as it sees physical
+    # cores (WSL reports 9 on this 14-core laptop), so np 10..14 would be refused.
+    mpirun $ROOT_FLAG --use-hwthread-cpus $OVERSUB -np "$np" build/flood_mpi \
         --grid "$GRID" --meta "$META" --mode "$mode" --limit "$LIMIT" --out "$out/" $EXTRA \
         > "$out.log" 2>&1 || { echo "  run failed, see $out.log" >&2; exit 1; }
     wall=$(tail -n 1 "$out/run_info.csv" | cut -d, -f4)
