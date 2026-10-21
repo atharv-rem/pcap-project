@@ -195,7 +195,12 @@ def build_real(paths, bbox):
         out[np.ix_(np.where(rok)[0], np.where(cok)[0])] = sub
         print(f"  {os.path.basename(t.path)}: {t.data.shape[0]}x{t.data.shape[1]} pixels, "
               f"covers {int(rok.sum())} rows x {int(cok.sum())} cols of the grid")
-    return out, lat_top, lon_left, cell, "SRTM 1 arc-second"
+    names = " ".join(os.path.basename(p).upper() for p in paths)
+    if "FABDEM" in names:
+        source = "FABDEM V1-2 1 arc-second (Copernicus GLO-30, buildings and trees removed)"
+    else:
+        source = "SRTM 1 arc-second"
+    return out, lat_top, lon_left, cell, source
 
 
 def smooth_noise(rng, rows, cols, scale_cells):
