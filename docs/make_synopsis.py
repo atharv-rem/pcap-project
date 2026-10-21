@@ -81,218 +81,204 @@ def footer(canvas, doc):
 
 s = []
 s.append(P("Bengaluru Flood-Risk Map using MPI", title))
-s.append(P("Running hundreds of rainstorms over the real terrain of Bengaluru to find the "
-           "places that flood most often, with the storms shared across many processes",
+s.append(P("Running 400 rainstorms over a real map of Bengaluru to find the places that "
+           "flood most often, with the work shared across many processes",
            subtitle))
 s.append(Spacer(1, 6))
 s.append(HRFlowable(width="100%", thickness=0.6, color=LINE, spaceAfter=10))
 s += table([
     ["Course", "Parallel Computing (PCAP) - Project Synopsis"],
     ["Programme", "B.Tech, Computer Science and Engineering"],
-    ["Made by", "Ritwik - 245805240<br/>Atharv - 245805386<br/>Pranshu - 245805158"],
+    ["Made by", "Atharv Remeshan - 245805386<br/>Pranshu Thakkar - 245805158<br/>"
+              "Ritwik Gupta - 245805240"],
     ["Tools", "C with OpenMPI; Python (NumPy, Matplotlib) for the maps and charts; "
               "raylib for the live demo"],
 ], [0.25, 0.75], header=False)
 
 s.append(P("1. Summary", h1))
-s.append(P("Bengaluru floods badly in heavy rain: roads such as the Outer Ring Road and junctions "
-           "such as Silk Board turn into lakes almost every monsoon. Water runs downhill and "
-           "collects in low ground, so the shape of the land alone already says a lot about "
-           "where the water will go."))
-s.append(P("This project takes a real elevation map of Bengaluru from satellite data and "
-           "lets hundreds of different storms fall on it, from short light showers to long "
-           "heavy downpours. A deliberately simple water model moves the rain downhill, step "
-           "by step. For every patch of ground the program counts in how many of the storms "
-           "it ends up under water. The result is a colour-coded flood-risk map of the city, "
-           "a ranked list of the most flood-prone areas, and a check against the places the "
-           "city corporation (BBMP) has officially listed as flood-prone."))
-s.append(P("The aim is to learn parallel programming, not hydrology. The storms do not depend "
-           "on each other, so they can be shared out among many processes. Everything to do "
-           "with dividing the work, passing messages between processes and combining the "
-           "results is written by us with MPI. The map is a screening map, not a forecast."))
+s.append(P("Bengaluru floods almost every monsoon. Roads like the Outer Ring Road and junctions "
+           "like Silk Board turn into small lakes. Rain water always runs downhill and collects "
+           "in low places, so the shape of the land already tells us a lot about where water "
+           "will go."))
+s.append(P("We took a real height map of Bengaluru from satellite data and let 400 different "
+           "rainstorms fall on it, from short light showers to long heavy downpours. A simple "
+           "computer model moves the rain water downhill, step by step. For every small patch "
+           "of land, we record how deep the water gets. The result is a colour-coded flood map "
+           "of the city, a list of the most flood-prone areas, and a check against the places "
+           "the city corporation (BBMP) has officially listed as flood-prone."))
+s.append(P("The goal of the project is to learn parallel programming. The 400 storms do not "
+           "depend on each other, so many processes can work on different storms at the same "
+           "time. We wrote all the code that shares out the work and collects the results "
+           "ourselves, using MPI. The map shows where flooding is likely; it is not a weather "
+           "forecast."))
 
-s.append(P("2. What the program has to do", h1))
+s.append(P("2. What the program does", h1))
 s += table([
     ["Step", "In plain words"],
-    ["1. Load the terrain", "Read the height of the ground for every cell of the map: "
-     "1,116 x 1,188 cells of about 30 m, covering about 1,200 km<super>2</super> of "
-     "Bengaluru (FABDEM satellite data, with buildings and trees removed); about 990 km of "
-     "mapped drains and streams are cut into it"],
-    ["2. Make the storm list", "Build 400 storms: 20 rain intensities (10 to 60 mm per hour) "
-     "times 20 durations (1 to 4 hours)"],
-    ["3. Run each storm", "Rain falls on every cell; every 30 simulated seconds each wet cell "
-     "passes some of its water to its lower neighbours; after the rain stops the water drains "
-     "for 2 more hours. A cell counts as flooded if it is still more than 0.3 m deep"],
-    ["4. Combine the storms", "For every cell, count in how many storms it flooded and "
-     "remember the deepest water it ever had"],
-    ["5. Report", "Draw the flood-risk map, rank 500 m areas by risk, compare the ranking "
-     "with 386 official BBMP flood points, and tabulate the flooded area per storm"],
-], [0.25, 0.75], cap="Table 1: The five steps of the flood-risk program.")
+    ["1. Load the map", "Read the ground height of every patch of land. The map has "
+     "1.33 million patches, each 30 m x 30 m, covering about 1,200 km<super>2</super> of "
+     "Bengaluru. We use FABDEM satellite data (buildings and trees removed) and also cut "
+     "about 990 km of known drains into it"],
+    ["2. Make the storms", "Create 400 storms: 20 rain strengths (10 to 60 mm per hour) times "
+     "20 lengths (1 to 4 hours)"],
+    ["3. Run each storm", "Rain falls everywhere. Every 30 seconds of storm time, water moves "
+     "from each wet patch to its lower neighbours. After the rain stops, we let the water "
+     "drain for 2 more hours"],
+    ["4. Combine the storms", "For every patch, count how often it flooded and remember the "
+     "deepest water it ever had"],
+    ["5. Show the results", "Draw the flood map, rank 500 m areas by risk, compare with 386 "
+     "official BBMP flood spots, and make a table of flooded area per storm"],
+], [0.25, 0.75], cap="Table 1: The five steps of the program.")
 
-s.append(P("3. Where the parallel work is", h1))
-s.append(P("Not every step splits equally well, and that is what makes this project worth "
-           "studying."))
+s.append(P("3. Why we use parallel processing", h1))
 s.append(bullets([
-    "<b>Step 3 is almost all of the time, and it splits perfectly by storm.</b> One storm on "
-    "the 30 m map takes between about 4 and 14 seconds on one core, so 400 storms take about "
-    "an hour on one process. The storms are completely independent: every process keeps its own copy of "
-    "the map and runs whole storms without talking to anyone.",
-    "<b>But the storms are not equal.</b> A 4-hour storm needs twice as many time steps as a "
-    "1-hour storm, and a wet map takes longer to compute than a dry one. If each process is "
-    "simply given a fixed share of the storm list, some finish long before others and sit "
-    "idle.",
-    "<b>Step 4 is a combining step.</b> The flood counts from all processes must be added "
-    "together cell by cell, and the deepest water kept. This happens once at the end, and its "
-    "cost does not shrink when more processes are added.",
-    "<b>Steps 1, 2 and 5 are small</b> and run on one process (step 5 in Python, after the "
-    "run).",
+    "<b>There is a lot of work.</b> 400 storms, each with up to 720 time steps, on 1.33 million "
+    "patches: billions of small calculations. One storm takes about 4 to 14 seconds on one "
+    "processor core, so all 400 take about an hour on one process.",
+    "<b>The work splits easily.</b> Each storm is completely separate from the others. Every "
+    "process gets its own copy of the map and runs whole storms by itself. The processes only "
+    "need to talk at the start (to get the settings) and at the end (to add up the results).",
+    "<b>But storms are not the same size.</b> A 4-hour storm takes about twice as long as a "
+    "1-hour storm. If we simply give each process an equal number of storms, some finish early "
+    "and sit idle while others are still busy. Sharing the work fairly is the interesting "
+    "problem in this project.",
+    "<b>Some parts cannot be sped up.</b> Adding up the results at the end, loading the map and "
+    "drawing the pictures take the same time however many processes we use.",
 ]))
-s.append(P("The limits worth reporting are the uneven storm lengths, the final combining step, "
-           "and the fact that the processes share one laptop's memory and cores, so each "
-           "extra process helps a little less than the one before."))
 
 s.append(P("4. How the processes work together", h1))
 s.append(P("4.1 Sharing the settings", h2))
-s.append(P("The first process reads the command line (the map file, the rain ranges, the "
-           "flood depth) and broadcasts the settings to every other process. Each process then "
-           "loads the map from disk and builds the storm list itself, so no map data ever has "
-           "to be sent between processes. Only storm numbers travel."))
-s.append(P("4.2 Handing out storms on demand (dynamic mode)", h2))
-s.append(P("The first process becomes a coordinator that only hands out work and does not "
-           "simulate. Each worker sends a \"ready\" message that also carries the result of "
-           "its last storm, and gets back the number of the next storm, or a stop signal when "
-           "none are left. A worker that drew a short storm simply comes back sooner, so "
-           "everyone stays busy."))
+s.append(P("Process 0 reads the settings (which map, which storms) and sends them to all other "
+           "processes. Each process then loads the map from disk by itself, so the big map is "
+           "never sent between processes. Only storm numbers are sent."))
+s.append(P("4.2 Handing out storms one at a time (dynamic mode)", h2))
+s.append(P("Process 0 acts as a manager and does not run storms itself. Each worker tells the "
+           "manager \"I am ready\" (and sends the result of its last storm), and the manager "
+           "replies with the next storm number, or \"stop\" when none are left. A worker that "
+           "gets a short storm simply comes back sooner, so nobody waits."))
 s.append(P("4.3 Fixed shares (static mode, for comparison)", h2))
-s.append(P("Each worker is given one fixed, contiguous block of the storm list up front and "
-           "runs it without any messages. This is simpler but cannot react to storms taking "
-           "different times. Running both modes on the same storms shows how much the "
-           "on-demand version gains."))
-s.append(P("4.4 Bringing the results together", h2))
-s.append(P("At the end, the flood counts of all processes are added together and the deepest "
-           "water is combined, cell by cell, at the first process. The busy time of every "
-           "process is gathered too, so the program can report how evenly the work was "
-           "shared. The first process then writes the result files."))
-s.append(P("4.5 Checking that the answer is right", h2))
-s.append(P("The water model has no randomness, so the parallel program must give exactly the "
-           "same answer as a plain one-process version. The output files of both are compared "
-           "byte for byte for every mode and number of processes."))
-s.append(P("4.6 Showing it live", h2))
-s.append(P("A separate window (raylib) replays one storm step by step on an OpenStreetMap "
-           "street map, so the audience can watch the water spread, zoom into an area, and read "
-           "the height and water depth of any point."))
+s.append(P("Each worker gets a fixed list of storms at the start and never talks to the manager. "
+           "This is simpler, but it cannot adjust when some storms take longer than others."))
+s.append(P("4.4 Collecting the results", h2))
+s.append(P("At the end, the flood counts from all workers are added together, patch by patch, "
+           "and the deepest water is kept. We also collect how long each worker was busy, so we "
+           "can see how evenly the work was shared."))
+s.append(P("4.5 Checking the answer", h2))
+s.append(P("The model has no randomness, so the parallel version must give exactly the same "
+           "answer as the one-process version. We compare the output files byte by byte."))
+s.append(P("4.6 Live demo", h2))
+s.append(P("A separate window shows one storm happening on a street map of Bengaluru. You can "
+           "watch the water spread, zoom in, and point at any spot to see its height and water "
+           "depth."))
 
 mpi = table([
-    ["MPI feature", "What it does, in plain words"],
-    ["Broadcast", "The first process sends the same settings (map file, rain ranges) to "
-     "everybody"],
-    ["Send and receive", "Workers ask for the next storm and the coordinator answers; "
-     "\"receive from anyone\" lets it serve whichever worker is ready first"],
-    ["Reduce", "Adds up the flood counts of all processes cell by cell (sum), and keeps the "
-     "deepest water seen (maximum)"],
-    ["Gather", "Collects every process's busy time, and in static mode the per-storm results, "
-     "at the first process"],
+    ["MPI feature", "What we use it for"],
+    ["Broadcast", "Process 0 sends the same settings to every process"],
+    ["Send and receive", "Workers ask for the next storm and the manager answers whoever "
+     "asks first"],
+    ["Reduce", "Adds up the flood counts from all processes (sum) and keeps the deepest water "
+     "(maximum)"],
+    ["Gather", "Collects how long each process was busy"],
     ["Barrier", "Makes all processes start and stop the clock together"],
-    ["Timer", "Measures the total run time and each process's busy time"],
-], [0.25, 0.75], cap="Table 2: The MPI ideas the project covers.")
+    ["Timer", "Measures how long the run takes"],
+], [0.25, 0.75], cap="Table 2: The MPI features we use.")
 s.append(KeepTogether([P("5. MPI features used", h1)] + mpi))
 
 s.append(P("6. What we found", h1))
 s.append(P("6.1 The parallel answer is exactly right", h2))
-s.append(P("Dynamic and static mode on 2 and 4 processes produce result files that are "
-           "byte-for-byte identical to the one-process program (checked with <i>cmp</i>, and "
-           "re-checked after every change to the model). Water is conserved to within 0.0003%."))
+s.append(P("With 2 and 4 processes, in both modes, the output files are exactly the same as "
+           "with one process, down to the last byte. The model also loses almost no water "
+           "(less than 0.0003% error)."))
 
 s.append(P("6.2 Speed", h2))
-s.append(P("Benchmark on the 90 m version of the map (400 storms, 3 repetitions, median wall "
-           "time, laptop on mains power):"))
+s.append(P("We timed 400 storms on a smaller 90 m version of the map, three times each, and "
+           "used the middle value. \"Speed-up\" means how many times faster than one process. "
+           "\"Imbalance\" means how much more work the busiest worker did than the average "
+           "worker (1.00 = perfectly fair)."))
 s += table([
     ["Processes", "Dynamic", "Static", "Speed-up (dynamic / static)",
-     "Load imbalance (dynamic / static)"],
+     "Imbalance (dynamic / static)"],
     ["1", "402 s", "-", "1.0x", "-"],
     ["4", "246 s", "253 s", "1.6x / 1.6x", "1.00 / 1.04"],
     ["8", "170 s", "178 s", "2.4x / 2.3x", "1.01 / 1.05"],
     ["14", "131 s", "138 s", "<b>3.1x / 2.9x</b>", "<b>1.02 / 1.10</b>"],
-], [0.14, 0.14, 0.14, 0.29, 0.29],
-    cap="Table 3: Speed-up and load imbalance (busiest worker / average worker).")
+], [0.14, 0.14, 0.14, 0.29, 0.29], cap="Table 3: Speed-up and imbalance.")
 s.append(bullets([
-    "<b>Handing out storms on demand balances the work.</b> Dynamic mode keeps the busiest "
-    "worker within 2% of the average; fixed shares reach 8-10%. In the 3-repetition medians "
-    "dynamic is also faster from 4 processes up, but only by about 5%, and a later "
-    "single-repetition check (2.8x dynamic / 3.1x static at 14 processes) showed that "
-    "run-to-run noise on this laptop (10-20%) is larger than that gap. The imbalance numbers "
-    "are the clearer evidence.",
-    "<b>The speed-up flattens because of the laptop, not MPI.</b> The same storm takes 1.0 s "
-    "when it runs alone but 4.1 s when 13 run at the same time: all processes share one "
-    "laptop's cache, memory bandwidth and power budget, and the CPU mixes fast and slower "
-    "cores. MPI's own cost is tiny (each message is a few bytes).",
-    "The full 400-storm run on the 30 m map takes about 14 minutes on 12 processes, against "
-    "about an hour on one.",
+    "<b>Dynamic mode shares the work more fairly.</b> Its busiest worker does only 2% more "
+    "than average; with fixed shares it is 8 to 10%. Dynamic was also a little faster (about "
+    "5%), but a second test showed that timings on this laptop change by 10 to 20% from run "
+    "to run, so the fairness numbers are the clearer result.",
+    "<b>Why only about 3 times faster with 14 processes?</b> Because of the laptop, not MPI. "
+    "One storm takes 1.0 s when it runs alone, but 4.1 s when 13 storms run at once. All "
+    "processes share the same memory, cache and power, and some of the CPU cores are slower "
+    "\"efficiency\" cores. The MPI messages themselves are tiny.",
+    "The full 400-storm run on the detailed 30 m map takes about 14 minutes with 12 processes, "
+    "instead of about an hour with one.",
 ]))
 s.append(KeepTogether([
     Table([[figure(os.path.join(ROOT, "results/bench/figures/speedup.png"), 80),
             figure(os.path.join(ROOT, "results/bench/figures/per_storm.png"), 80)]],
           colWidths=[W / 2, W / 2]),
-    P("Figure 1: Left, speed-up against the ideal line. Right, the average time per storm "
-      "grows as more processes share the laptop.", caption)]))
+    P("Figure 1: Left, how much faster the program gets (the dashed line is the perfect case). "
+      "Right, each storm gets slower as more processes share the laptop.", caption)]))
 
 s.append(P("6.3 Where Bengaluru floods", h2))
 s.append(bullets([
-    "Flood risk follows the city's natural drainage: valleys, drain lines and chains of lakes. "
-    "Clusters stand out in the west and centre (Vijayanagar, Malleshwaram, Rajajinagar) and "
-    "around the south-east lakes (Bellandur, Outer Ring Road).",
-    "The flooded area grows strongly with rain: 13.5 km<super>2</super> for the lightest storm "
-    "(10 mm/h for 1 h), 58 km<super>2</super> for 60 mm/h for 1 h and 191 km<super>2</super> "
-    "for the heaviest (60 mm/h for 4 h). Intensity matters more than duration.",
-    "<b>87 of 384 official BBMP flood points lie in the riskiest 10% of the map's 500 m "
-    "areas: 2.3 times more often than random places would.</b> 6 of the 10 highest-ranked "
-    "areas have a BBMP flood point within 1 km.",
+    "Flooding follows the city's natural low lines: valleys, drains and chains of lakes. "
+    "Hot spots are in the west and centre (Vijayanagar, Malleshwaram, Rajajinagar) and around "
+    "the south-east lakes (Bellandur, Outer Ring Road).",
+    "Stronger rain floods much more land: 13.5 km<super>2</super> for the lightest storm "
+    "(10 mm/h for 1 hour), 58 km<super>2</super> for 60 mm/h for 1 hour, and "
+    "191 km<super>2</super> for the heaviest (60 mm/h for 4 hours). How hard it rains matters "
+    "more than how long.",
+    "<b>87 of the 384 official BBMP flood spots fall in our riskiest 10% of areas. That is "
+    "2.3 times more than random places would.</b> 6 of our 10 riskiest areas have a BBMP "
+    "flood spot within 1 km.",
 ]))
 s.append(KeepTogether([
     figure(os.path.join(ROOT, "results/full_fabdem_drains/peak_depth_map.png"), 118),
-    P("Figure 2: Deepest water reached in any of the 400 storms (30 m cells, mapped drains "
-      "included), over an OpenStreetMap street map. Black dots: BBMP flood points; grey: lakes.",
-      caption)]))
+    P("Figure 2: The deepest water each place reached in any of the 400 storms, on a street "
+      "map. Black dots: BBMP flood spots. Grey: lakes.", caption)]))
 
 s.append(P("6.4 Making the map more accurate", h2))
-s.append(P("Each improvement was tested on half of the BBMP points and scored on the other half, "
-           "so the result is not tuned to the test. The score (AUC) is the chance that a real "
-           "flood point is rated riskier than a random place: 0.5 means guessing, 1.0 perfect."))
+s.append(P("We tested each improvement fairly: we chose settings using half of the BBMP spots "
+           "and measured the result on the other half. The score below is the chance that a "
+           "real flood spot is rated riskier than a random place (0.5 = guessing, "
+           "1.0 = perfect)."))
 s += table([
-    ["Version of the model", "Score on unseen points (AUC, within 300 m)"],
-    ["Original terrain (SRTM, includes rooftops and trees)", "0.55"],
-    ["Better terrain (FABDEM, buildings and trees removed)", "0.68"],
-    ["+ about 990 km of mapped drains cut into the terrain", "0.71"],
-    ["+ risk scored by the deepest water instead of water left at the end", "0.71"],
-], [0.7, 0.3], cap="Table 4: How each change improved agreement with real flood points.")
-s.append(P("Soaking rain into the ground (a constant loss rate) and a wider range of storms "
-           "were also tested and did not improve the agreement."))
+    ["Version of the model", "Score on the unseen half"],
+    ["Original height map (SRTM, includes rooftops and trees)", "0.55"],
+    ["Better height map (FABDEM, buildings and trees removed)", "0.68"],
+    ["+ about 990 km of known drains added", "0.71"],
+    ["+ judging risk by the deepest water during the storm", "0.71"],
+], [0.7, 0.3], cap="Table 4: Each improvement and its score.")
+s.append(P("We also tried letting rain soak into the ground and using a wider range of storms. "
+           "Neither made the map more accurate."))
 
 s.append(P("6.5 Limits", h2))
-s.append(P("This is a screening map, not a forecast. The model has no drain capacity or "
-           "blockages, no soil, no buildings and no underpasses, so about 7 in 10 real flood "
-           "points still fall outside the riskiest zone, and depths and times are model values. "
-           "Timings on this laptop vary between sessions, so all speed comparisons come from one "
-           "benchmark session."))
+s.append(P("This map shows where flooding is likely; it is not a forecast. The model does not "
+           "know about blocked or small drains, soil, buildings or underpasses. So about 7 out "
+           "of 10 real flood spots still fall outside our riskiest areas, and the water depths "
+           "are model numbers, not exact predictions."))
 
 tools = table([
-    ["Language", "C (C11), compiled with the MPI compiler wrapper (mpicc)"],
+    ["Language", "C, built with the MPI compiler (mpicc)"],
     ["MPI library", "OpenMPI 4.1"],
-    ["Terrain data", "FABDEM V1-2 (Copernicus 30 m elevation with buildings and trees removed, University of Bristol); SRTM 30 m for comparison"],
-    ["Flood points", "386 BBMP flood-vulnerable, flood-prone and low-lying locations (open "
-     "data from OpenCity, source KSRSAC)"],
-    ["Map data", "OpenStreetMap: drains and streams (cut into the terrain), lakes (left out "
-     "of the ranking) and the street map behind the results, (c) OpenStreetMap contributors"],
+    ["Height map", "FABDEM (30 m, buildings and trees removed, University of Bristol); SRTM "
+     "for comparison"],
+    ["Flood spots", "386 official BBMP flood locations (open data from OpenCity)"],
+    ["Map data", "OpenStreetMap: drains, lakes and the street map, (c) OpenStreetMap "
+     "contributors"],
     ["Live demo", "raylib, a small C graphics library"],
-    ["Machine", "A 14-core laptop (Intel Core Ultra 5 125H) running Ubuntu 24.04 under WSL; "
-     "tested up to 14 processes"],
-    ["Graphs", "Python with NumPy and Matplotlib, for the maps and timing charts in the report"],
+    ["Computer", "14-core laptop (Intel Core Ultra 5 125H), Ubuntu 24.04 under WSL; tested "
+     "with up to 14 processes"],
+    ["Charts", "Python with NumPy and Matplotlib"],
 ], [0.25, 0.75], header=False)
 s.append(KeepTogether([P("7. Tools", h1)] + tools))
 
 doc = SimpleDocTemplate(OUT, pagesize=A4, leftMargin=22 * mm, rightMargin=22 * mm,
                         topMargin=20 * mm, bottomMargin=22 * mm,
                         title="Bengaluru Flood-Risk Map using MPI - Project Synopsis",
-                        author="Ritwik, Atharv, Pranshu")
+                        author="Atharv Remeshan, Pranshu Thakkar, Ritwik Gupta")
 doc.build(s, onFirstPage=footer, onLaterPages=footer)
 print("wrote", OUT)
