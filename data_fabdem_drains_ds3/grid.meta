@@ -1,0 +1,7 @@
+rows=372
+cols=396
+cell_size_m=90.0
+lat_top=13.140138889
+lon_left=77.449861111
+cell_deg=0.000833333333
+source=FABDEM V1-2 1 arc-second (Copernicus GLO-30, buildings and trees removed), 3x3 smoothed, downsampled 3x, OSM waterways burned 2 m

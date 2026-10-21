@@ -161,6 +161,68 @@ Validation (lakes excluded): 75 of 384 verified BBMP points in the top 10% of 4,
 - Live demo on FABDEM: `build/live --grid data_fabdem_ds3/grid.bin --meta
   data_fabdem_ds3/grid.meta --intensity 40 --duration 2.5`.
 
+## Accuracy improvements (drains, soak-in, calibration)
+- **Drains:** `data/raw/waterways_osm.json` (Overpass: `way["waterway"~"^(drain|canal|stream|river|ditch)$"]`
+  in the grid bbox; 2,830 ways, ~990 km: 708 km drains, 148 km streams, 108 km rivers,
+  27 km ditches, culverts included). `scripts/burn_drains.py` lowers every cell crossed by
+  a waterway by `--depth` m (traced 4-connected, since water only moves N/S/E/W) and writes
+  a new grid folder: `data_fabdem_drains/` (30 m, 2.9% of cells) and
+  `data_fabdem_drains_ds3/` (90 m, 8.5%), each with `drains_mask.bin` and `lakes_mask.bin`.
+- **Soak-in:** new optional flag `--loss L` (mm/h) in `flood_serial` and `flood_mpi`
+  (default 0 = old behaviour): the model gets `max(0, intensity - L)` ("phi index");
+  `scenarios.csv` keeps the real intensity. Checked: serial == MPI dynamic == MPI static
+  (`cmp`, np 4) for loss 0 and 15.
+- **Fair scoring:** `scripts/compare_runs.py` scores runs by AUC (chance a BBMP point scores
+  higher than a random land point; 0.5 = guessing) and top-10% hit rate (10% = guessing,
+  ties at the cut-off get proportional credit), using the highest flood frequency within
+  0 / 150 / 300 m of each point, and the same for 20,000 random land points. Spots are split
+  into half A (choose settings) and half B (report).
+- **Calibration** (`exp/`, 90 m FABDEM, 400 storms, np 14, ~73 s per run): drains
+  0/2/4 m x loss 0/10/20 mm/h. Best on A at 150 m: drains 2 m, loss 0 (AUC A 0.623 vs 0.589
+  without drains; half B 0.645 vs 0.603). Soak-in did not improve the ranking (it only
+  shrinks the flooded area), so the final run uses loss 0.
+- **Final 30 m comparison** (half B, never used for choices):
+
+  | map | AUC cell | AUC 150 m | AUC 300 m | top-10% (cell) |
+  |---|---|---|---|---|
+  | SRTM | 0.580 | 0.583 | 0.549 | 24% |
+  | FABDEM | 0.623 | 0.668 | 0.680 | 30% |
+  | **FABDEM + drains** (`results/full_fabdem_drains/`, 863 s) | **0.625** | **0.684** | **0.708** | **31%** |
+
+  The old block headline is 1.9x (73 of 384) for FABDEM + drains vs 2.0x for the others;
+  the neighbourhood AUC is the fairer measure. **Main map for the report:
+  `results/full_fabdem_drains/`.** Live demo: `build/live --grid
+  data_fabdem_drains_ds3/grid.bin --meta data_fabdem_drains_ds3/grid.meta ...`.
+
+## Peak depth as the risk score
+- The default score counts a cell as flooded only if water is still > 0.3 m deep at the
+  end of the 2 h drain window. Scoring by **peak depth** (deepest water the cell reached in
+  any storm, `maxdepth.bin`, already written by every run) matches the BBMP points better:
+  90 m, drains, 150 m radius: AUC A 0.623 -> 0.680, B 0.645 -> 0.683. On the 30 m final run
+  (half B): 0.684 -> 0.685 at 150 m, 0.708 -> 0.712 at 300 m. A wider storm range
+  (10-100 mm/h, 1-6 h) added nothing beyond noise (A 0.684 vs 0.680), so the standard
+  range is kept. Tuning has levelled off around AUC 0.68-0.71.
+- New options: `make_risk_map.py --field maxdepth` -> `peak_depth_map.png` (colour 0-2 m,
+  cells < 0.1 m transparent); `rank_areas.py --by peak` -> `ranked_areas_peak.csv` (extra
+  column mean_peak_depth_m); `validate.py --by peak` -> `validation_peak.csv`;
+  `compare_runs.py --field maxdepth.bin`.
+- **Final result (`results/full_fabdem_drains/`, peak depth):** 87 of 384 verified BBMP
+  points in the top 10% of blocks = **2.3x better than chance** (vulnerable 25%, low-lying
+  22%, flood-prone 17%); 6 of the 10 top-ranked blocks have a BBMP point within 1 km.
+  Caveat: a few closed hollows reach unrealistic peak depths (up to 11 m), hence the 2 m
+  colour cap; depths are model values, not predictions.
+- A repeat benchmark on 21 Oct 10:00 was stopped because the laptop was on battery (16%,
+  Windows "discharging"): np=1 took 1,237 s against 402 s in the overnight benchmark. The
+  overnight benchmark ran on mains power and is the official result (`results/bench/`).
+  Timings on this laptop vary a lot with power state and background load (the morning
+  calibration runs took 73 s for 400 storms at np 14, the overnight median was 131 s), so
+  only compare timings taken in the same session.
+- Re-check on mains power, 21 Oct 12:30-13:07, 1 repetition (`results/bench_plugged/`):
+  np 1 458 s; np 4 343 / 288 s; np 8 180 / 180 s; np 14 162 / 149 s (dynamic / static) =
+  2.8x / 3.1x; imbalance at np 14 1.02 / 1.08. Confirms ~3x and the better balance of
+  dynamic mode, but static was sometimes faster in wall time: run-to-run noise (10-20%) is
+  larger than the ~5% dynamic-static gap, so the imbalance figures are the clearer evidence.
+
 ## OpenStreetMap background
 - `python3 scripts/osm_basemap.py --meta data_fabdem/grid.meta` downloads the 64 standard
   OSM tiles (zoom 13) covering the grid once (cached in `data/raw/osm/tiles/`, gitignored),

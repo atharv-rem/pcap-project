@@ -52,7 +52,7 @@ enum {
  * (ints, doubles, chars), so every rank sees exactly the same values. */
 #define PATH_LEN 512
 enum { I_N_INT, I_N_DUR, I_LIMIT, I_MODE, I_OK, N_ISET };
-enum { D_INT_MIN, D_INT_MAX, D_DUR_MIN, D_DUR_MAX, D_THRESHOLD, N_DSET };
+enum { D_INT_MIN, D_INT_MAX, D_DUR_MIN, D_DUR_MAX, D_THRESHOLD, D_LOSS, N_DSET };
 enum { P_GRID, P_META, P_OUT, N_PSET };
 enum { MODE_DYNAMIC = 0, MODE_STATIC = 1 };
 
@@ -70,6 +70,7 @@ static void usage(void)
             "         [--intensity-min 10] [--intensity-max 100]   (mm/hr)\n"
             "         [--duration-min 1] [--duration-max 6]        (hours)\n"
             "         [--threshold 0.3] [--mode dynamic|static]\n"
+            "         [--loss 0]                                (mm/hr soaked up)\n"
             "         [--limit 0] [--out results/]\n");
 }
 
@@ -122,6 +123,7 @@ static int parse_args(int argc, char **argv, Settings *s)
     s->dv[D_DUR_MIN] = 1.0;
     s->dv[D_DUR_MAX] = 6.0;
     s->dv[D_THRESHOLD] = 0.3;
+    s->dv[D_LOSS] = 0.0;
     strcpy(s->path[P_GRID], "data/grid.bin");
     strcpy(s->path[P_META], "data/grid.meta");
     strcpy(s->path[P_OUT], "results/");
@@ -145,6 +147,7 @@ static int parse_args(int argc, char **argv, Settings *s)
         else if (!strcmp(k, "--duration-min")) rc = parse_double(k, v, &s->dv[D_DUR_MIN]);
         else if (!strcmp(k, "--duration-max")) rc = parse_double(k, v, &s->dv[D_DUR_MAX]);
         else if (!strcmp(k, "--threshold")) rc = parse_double(k, v, &s->dv[D_THRESHOLD]);
+        else if (!strcmp(k, "--loss")) rc = parse_double(k, v, &s->dv[D_LOSS]);
         else if (!strcmp(k, "--mode")) {
             rc = 0;
             if (!strcmp(v, "dynamic")) s->iv[I_MODE] = MODE_DYNAMIC;
@@ -276,6 +279,7 @@ typedef struct {
     int rank;
     const ScenarioList *L;
     float threshold;
+    float loss;               /* --loss, mm/h */
     SimState *sim;
     int32_t *flood_count;     /* accumulated over this rank's storms */
     float *max_depth;         /* accumulated over this rank's storms */
@@ -283,12 +287,18 @@ typedef struct {
     int n_run;                /* storms this rank ran */
 } Worker;
 
+/* --loss L (mm/h, default 0): a constant loss rate (the "phi index"): the ground soaks up
+   L mm of rain per hour, so the model gets max(0, intensity - L). scenarios.csv still lists
+   the real intensity. flood_serial and flood_mpi apply it the same way (float arithmetic),
+   so their results stay bit-identical. */
 /* Run one storm and fill a result record. */
 static void run_one(Worker *w, int id, double *rec)
 {
     Scenario sc = w->L->sc[id];
+    Scenario eff = sc;
+    eff.intensity_mm_hr = fmaxf(0.0f, sc.intensity_mm_hr - w->loss);
     double t0 = MPI_Wtime();   /* MPI_Wtime: portable wall clock, the busy time of this storm */
-    SimStats st = sim_run_scenario(w->sim, sc, w->threshold, w->flood_count, w->max_depth);
+    SimStats st = sim_run_scenario(w->sim, eff, w->threshold, w->flood_count, w->max_depth);
     double dt = MPI_Wtime() - t0;
     w->busy += dt;
     w->n_run++;
@@ -476,7 +486,8 @@ int main(int argc, char **argv)
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
-    Worker w = {rank, &L, (float)set.dv[D_THRESHOLD], sim, flood_count, max_depth, 0.0, 0};
+    Worker w = {rank, &L, (float)set.dv[D_THRESHOLD], (float)set.dv[D_LOSS], sim, flood_count,
+                max_depth, 0.0, 0};
 
     if (rank == 0) {
         printf("flood_mpi: mode %s, np %d, grid %dx%d, %d of %d scenarios, threshold %.3g m\n",

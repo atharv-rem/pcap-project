@@ -1,4 +1,5 @@
 """Build the project synopsis PDF in the style of the course template."""
+import os
 import sys
 
 from reportlab.lib import colors
@@ -6,10 +7,11 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import (HRFlowable, KeepTogether, ListFlowable, ListItem, Paragraph,
-                                SimpleDocTemplate, Spacer, Table, TableStyle)
+from reportlab.platypus import (HRFlowable, Image, KeepTogether, ListFlowable, ListItem,
+                                Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle)
 
 OUT = sys.argv[1]
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root
 GREY = colors.HexColor("#555555")
 LINE = colors.HexColor("#bbbbbb")
 HEAD_BG = colors.HexColor("#eeeeee")
@@ -51,6 +53,15 @@ def table(rows, widths, header=True, cap=None):
     if cap:
         out.append(P(cap, caption))
     return out
+
+
+def figure(path, width_mm):
+    """Image scaled to width_mm, keeping its aspect ratio."""
+    img = Image(path)
+    ratio = img.imageHeight / img.imageWidth
+    img.drawWidth = width_mm * mm
+    img.drawHeight = width_mm * mm * ratio
+    return img
 
 
 def bullets(items):
@@ -105,7 +116,8 @@ s += table([
     ["Step", "In plain words"],
     ["1. Load the terrain", "Read the height of the ground for every cell of the map: "
      "1,116 x 1,188 cells of about 30 m, covering about 1,200 km<super>2</super> of "
-     "Bengaluru (FABDEM satellite data, with buildings and trees removed)"],
+     "Bengaluru (FABDEM satellite data, with buildings and trees removed); about 990 km of "
+     "mapped drains and streams are cut into it"],
     ["2. Make the storm list", "Build 400 storms: 20 rain intensities (10 to 60 mm per hour) "
      "times 20 durations (1 to 4 hours)"],
     ["3. Run each storm", "Rain falls on every cell; every 30 simulated seconds each wet cell "
@@ -122,8 +134,8 @@ s.append(P("Not every step splits equally well, and that is what makes this proj
            "studying."))
 s.append(bullets([
     "<b>Step 3 is almost all of the time, and it splits perfectly by storm.</b> One storm on "
-    "the 30 m map takes between 4 and 21 seconds, so 400 storms take about 85 minutes on one "
-    "process. The storms are completely independent: every process keeps its own copy of "
+    "the 30 m map takes between about 4 and 14 seconds on one core, so 400 storms take about "
+    "an hour on one process. The storms are completely independent: every process keeps its own copy of "
     "the map and runs whole storms without talking to anyone.",
     "<b>But the storms are not equal.</b> A 4-hour storm needs twice as many time steps as a "
     "1-hour storm, and a wet map takes longer to compute than a dry one. If each process is "
@@ -166,9 +178,9 @@ s.append(P("The water model has no randomness, so the parallel program must give
            "same answer as a plain one-process version. The output files of both are compared "
            "byte for byte for every mode and number of processes."))
 s.append(P("4.6 Showing it live", h2))
-s.append(P("A separate window (raylib) replays one storm step by step on the real map, so the "
-           "audience can watch the water spread, zoom into an area, and read the height and "
-           "water depth of any point."))
+s.append(P("A separate window (raylib) replays one storm step by step on an OpenStreetMap "
+           "street map, so the audience can watch the water spread, zoom into an area, and read "
+           "the height and water depth of any point."))
 
 mpi = table([
     ["MPI feature", "What it does, in plain words"],
@@ -185,30 +197,92 @@ mpi = table([
 ], [0.25, 0.75], cap="Table 2: The MPI ideas the project covers.")
 s.append(KeepTogether([P("5. MPI features used", h1)] + mpi))
 
-s.append(P("6. What we expect to find", h1))
+s.append(P("6. What we found", h1))
+s.append(P("6.1 The parallel answer is exactly right", h2))
+s.append(P("Dynamic and static mode on 2 and 4 processes produce result files that are "
+           "byte-for-byte identical to the one-process program (checked with <i>cmp</i>, and "
+           "re-checked after every change to the model). Water is conserved to within 0.0003%."))
+
+s.append(P("6.2 Speed", h2))
+s.append(P("Benchmark on the 90 m version of the map (400 storms, 3 repetitions, median wall "
+           "time, laptop on mains power):"))
+s += table([
+    ["Processes", "Dynamic", "Static", "Speed-up (dynamic / static)",
+     "Load imbalance (dynamic / static)"],
+    ["1", "402 s", "-", "1.0x", "-"],
+    ["4", "246 s", "253 s", "1.6x / 1.6x", "1.00 / 1.04"],
+    ["8", "170 s", "178 s", "2.4x / 2.3x", "1.01 / 1.05"],
+    ["14", "131 s", "138 s", "<b>3.1x / 2.9x</b>", "<b>1.02 / 1.10</b>"],
+], [0.14, 0.14, 0.14, 0.29, 0.29],
+    cap="Table 3: Speed-up and load imbalance (busiest worker / average worker).")
 s.append(bullets([
-    "A flood-risk map of Bengaluru in which the valleys, low-lying layouts and the areas "
-    "around the lakes stand out, together with a ranked list of the most flood-prone areas.",
-    "Exactly the same map from one process and from many processes. This has already been "
-    "confirmed on a first test: dynamic and static mode on 2 and 4 processes gave output "
-    "files identical to the one-process run.",
-    "A good speed-up at first, which then flattens: one process is the coordinator, the "
-    "final combining step does not shrink, and the processes compete for the same memory and "
-    "cores on one laptop.",
-    "Some workers finishing their fixed share of storms much earlier than others, and a "
-    "measurable gain when storms are handed out on demand instead.",
-    "Agreement with the real flood points, but far from perfect, because the model knows "
-    "nothing about drains, soil, buildings or flyovers. In a first small test the official "
-    "BBMP flood points fell into the riskiest 10% of the map about twice as often as random "
-    "points would.",
+    "<b>Handing out storms on demand balances the work.</b> Dynamic mode keeps the busiest "
+    "worker within 2% of the average; fixed shares reach 8-10%. In the 3-repetition medians "
+    "dynamic is also faster from 4 processes up, but only by about 5%, and a later "
+    "single-repetition check (2.8x dynamic / 3.1x static at 14 processes) showed that "
+    "run-to-run noise on this laptop (10-20%) is larger than that gap. The imbalance numbers "
+    "are the clearer evidence.",
+    "<b>The speed-up flattens because of the laptop, not MPI.</b> The same storm takes 1.0 s "
+    "when it runs alone but 4.1 s when 13 run at the same time: all processes share one "
+    "laptop's cache, memory bandwidth and power budget, and the CPU mixes fast and slower "
+    "cores. MPI's own cost is tiny (each message is a few bytes).",
+    "The full 400-storm run on the 30 m map takes about 14 minutes on 12 processes, against "
+    "about an hour on one.",
 ]))
+s.append(KeepTogether([
+    Table([[figure(os.path.join(ROOT, "results/bench/figures/speedup.png"), 80),
+            figure(os.path.join(ROOT, "results/bench/figures/per_storm.png"), 80)]],
+          colWidths=[W / 2, W / 2]),
+    P("Figure 1: Left, speed-up against the ideal line. Right, the average time per storm "
+      "grows as more processes share the laptop.", caption)]))
+
+s.append(P("6.3 Where Bengaluru floods", h2))
+s.append(bullets([
+    "Flood risk follows the city's natural drainage: valleys, drain lines and chains of lakes. "
+    "Clusters stand out in the west and centre (Vijayanagar, Malleshwaram, Rajajinagar) and "
+    "around the south-east lakes (Bellandur, Outer Ring Road).",
+    "The flooded area grows strongly with rain: 13.5 km<super>2</super> for the lightest storm "
+    "(10 mm/h for 1 h), 58 km<super>2</super> for 60 mm/h for 1 h and 191 km<super>2</super> "
+    "for the heaviest (60 mm/h for 4 h). Intensity matters more than duration.",
+    "<b>87 of 384 official BBMP flood points lie in the riskiest 10% of the map's 500 m "
+    "areas: 2.3 times more often than random places would.</b> 6 of the 10 highest-ranked "
+    "areas have a BBMP flood point within 1 km.",
+]))
+s.append(KeepTogether([
+    figure(os.path.join(ROOT, "results/full_fabdem_drains/peak_depth_map.png"), 118),
+    P("Figure 2: Deepest water reached in any of the 400 storms (30 m cells, mapped drains "
+      "included), over an OpenStreetMap street map. Black dots: BBMP flood points; grey: lakes.",
+      caption)]))
+
+s.append(P("6.4 Making the map more accurate", h2))
+s.append(P("Each improvement was tested on half of the BBMP points and scored on the other half, "
+           "so the result is not tuned to the test. The score (AUC) is the chance that a real "
+           "flood point is rated riskier than a random place: 0.5 means guessing, 1.0 perfect."))
+s += table([
+    ["Version of the model", "Score on unseen points (AUC, within 300 m)"],
+    ["Original terrain (SRTM, includes rooftops and trees)", "0.55"],
+    ["Better terrain (FABDEM, buildings and trees removed)", "0.68"],
+    ["+ about 990 km of mapped drains cut into the terrain", "0.71"],
+    ["+ risk scored by the deepest water instead of water left at the end", "0.71"],
+], [0.7, 0.3], cap="Table 4: How each change improved agreement with real flood points.")
+s.append(P("Soaking rain into the ground (a constant loss rate) and a wider range of storms "
+           "were also tested and did not improve the agreement."))
+
+s.append(P("6.5 Limits", h2))
+s.append(P("This is a screening map, not a forecast. The model has no drain capacity or "
+           "blockages, no soil, no buildings and no underpasses, so about 7 in 10 real flood "
+           "points still fall outside the riskiest zone, and depths and times are model values. "
+           "Timings on this laptop vary between sessions, so all speed comparisons come from one "
+           "benchmark session."))
 
 tools = table([
     ["Language", "C (C11), compiled with the MPI compiler wrapper (mpicc)"],
     ["MPI library", "OpenMPI 4.1"],
     ["Terrain data", "FABDEM V1-2 (Copernicus 30 m elevation with buildings and trees removed, University of Bristol); SRTM 30 m for comparison"],
-    ["Flood points", "BBMP flood-vulnerable, flood-prone and low-lying locations (open data "
-     "from OpenCity, source KSRSAC); lakes from OpenStreetMap, left out of the ranking"],
+    ["Flood points", "386 BBMP flood-vulnerable, flood-prone and low-lying locations (open "
+     "data from OpenCity, source KSRSAC)"],
+    ["Map data", "OpenStreetMap: drains and streams (cut into the terrain), lakes (left out "
+     "of the ranking) and the street map behind the results, (c) OpenStreetMap contributors"],
     ["Live demo", "raylib, a small C graphics library"],
     ["Machine", "A 14-core laptop (Intel Core Ultra 5 125H) running Ubuntu 24.04 under WSL; "
      "tested up to 14 processes"],

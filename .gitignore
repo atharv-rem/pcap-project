@@ -4,3 +4,4 @@ data/raw/
 data_ds3/
 results_fake/
 __pycache__/
+exp/

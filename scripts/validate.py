@@ -28,6 +28,9 @@ def main():
     ap.add_argument("--spots", default="data/known_spots.csv")
     ap.add_argument("--lakes", default="",
                     help="lake mask (default: lakes_mask.bin next to --meta; 'none' = off)")
+    ap.add_argument("--by", choices=["freq", "peak"], default="freq",
+                    help="rank blocks by mean flood frequency (default) or mean peak depth; "
+                         "peak writes validation_peak.csv")
     a = ap.parse_args()
 
     meta = read_meta(a.meta)
@@ -35,7 +38,7 @@ def main():
     maxdepth = load_result(a.results_dir, "maxdepth.bin", meta, a.meta)
     spots = load_spots(a.spots, meta)
     lakes = load_lakes(a.lakes, a.meta, meta)
-    b, blocks = block_table(freq, maxdepth, meta, a.block_m, lakes)
+    b, blocks = block_table(freq, maxdepth, meta, a.block_m, lakes, a.by)
     by_pos = {(blk["block_row"], blk["block_col"]): blk for blk in blocks}
     n = len(blocks)
     top_n = max(1, math.ceil(TOP_SHARE * n))
@@ -59,7 +62,8 @@ def main():
             "in_top10": "yes" if blk["rank"] <= top_n else "no",
         })
 
-    out = os.path.join(a.results_dir, "validation.csv")
+    out = os.path.join(a.results_dir,
+                       "validation_peak.csv" if a.by == "peak" else "validation.csv")
     cols = ["name", "lat", "lon", "verified", "group", "block_row", "block_col", "cell_freq",
             "block_mean_freq", "block_max_depth_m", "rank", "n_blocks", "percentile",
             "in_top10"]

@@ -10,6 +10,10 @@ file), computes each block's mean flood frequency (freq.bin) and the deepest wat
     rank,block_row,block_col,lat,lon,mean_freq,max_depth_m,nearest_known_spot
 lat/lon are the block centre; nearest_known_spot is filled only if a known spot lies
 within 1 km. Blocks on the right and bottom edge may be smaller than the others.
+--by peak ranks by the block's mean peak depth (the deepest water each cell reached in any
+storm, from maxdepth.bin) instead, and writes ranked_areas_peak.csv with an extra column
+mean_peak_depth_m. Peak depth matched the BBMP flood points better than end-of-storm
+flooding (see docs/notes_M3.md).
 
 The helpers in this file (read_meta, load_result, load_spots, block_table, ...) are also
 used by validate.py and make_risk_map.py.
@@ -158,12 +162,13 @@ def block_cells(meta, block_m):
     return max(1, int(round(block_m / meta["cell_size_m"])))
 
 
-def block_table(freq, maxdepth, meta, block_m, lakes=None):
+def block_table(freq, maxdepth, meta, block_m, lakes=None, by="freq"):
     """Per-block statistics, sorted from most to least flood-prone.
 
     Returns (b, blocks) where b is the block side in cells and blocks is a list of dicts
-    with keys rank, block_row, block_col, lat, lon, mean_freq, max_depth_m. Order: mean
-    flood frequency, then deepest water, both descending, then block position.
+    with keys rank, block_row, block_col, lat, lon, mean_freq, max_depth_m,
+    mean_peak_depth_m. Order (by="freq"): mean flood frequency, then deepest water, both
+    descending, then block position; by="peak": mean peak depth, then mean frequency.
     With a lake mask, lake cells are ignored and blocks that are more than MAX_LAKE_SHARE
     lake are left out (they are not in the list at all)."""
     rows, cols = freq.shape
@@ -185,6 +190,7 @@ def block_table(freq, maxdepth, meta, block_m, lakes=None):
         warnings.simplefilter("ignore", category=RuntimeWarning)
         mean_f = np.nanmean(f, axis=(1, 3))
         max_d = np.nanmax(d, axis=(1, 3))
+        mean_d = np.nanmean(d, axis=(1, 3))
 
     blocks = []
     for br in range(nbr):
@@ -197,9 +203,14 @@ def block_table(freq, maxdepth, meta, block_m, lakes=None):
             lon = meta["lon_left"] + (c0 + c1) / 2 * meta["cell_deg"]
             blocks.append({"block_row": br, "block_col": bc, "lat": lat, "lon": lon,
                            "mean_freq": float(mean_f[br, bc]),
-                           "max_depth_m": float(max_d[br, bc])})
-    blocks.sort(key=lambda x: (-x["mean_freq"], -x["max_depth_m"], x["block_row"],
-                               x["block_col"]))
+                           "max_depth_m": float(max_d[br, bc]),
+                           "mean_peak_depth_m": float(mean_d[br, bc])})
+    if by == "peak":
+        blocks.sort(key=lambda x: (-x["mean_peak_depth_m"], -x["mean_freq"], x["block_row"],
+                                   x["block_col"]))
+    else:
+        blocks.sort(key=lambda x: (-x["mean_freq"], -x["max_depth_m"], x["block_row"],
+                                   x["block_col"]))
     for i, blk in enumerate(blocks):
         blk["rank"] = i + 1
     return b, blocks
@@ -223,6 +234,8 @@ def main():
     ap.add_argument("--spots", default="data/known_spots.csv")
     ap.add_argument("--lakes", default="",
                     help="lake mask (default: lakes_mask.bin next to --meta; 'none' = off)")
+    ap.add_argument("--by", choices=["freq", "peak"], default="freq",
+                    help="rank by mean flood frequency (default) or mean peak depth")
     a = ap.parse_args()
 
     meta = read_meta(a.meta)
@@ -231,29 +244,33 @@ def main():
     spots = load_spots(a.spots, meta, quiet=True)
     lakes = load_lakes(a.lakes, a.meta, meta)
 
-    b, blocks = block_table(freq, maxdepth, meta, a.block_m, lakes)
+    b, blocks = block_table(freq, maxdepth, meta, a.block_m, lakes, a.by)
     for blk in blocks:
         blk["nearest_known_spot"] = nearest_spot(blk["lat"], blk["lon"], spots)
 
-    out = os.path.join(a.results_dir, "ranked_areas.csv")
+    peak = a.by == "peak"
+    out = os.path.join(a.results_dir, "ranked_areas_peak.csv" if peak else "ranked_areas.csv")
     with open(out, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["rank", "block_row", "block_col", "lat", "lon", "mean_freq",
-                    "max_depth_m", "nearest_known_spot"])
+                    "max_depth_m", "nearest_known_spot"] + (["mean_peak_depth_m"] if peak else []))
         for blk in blocks:
             w.writerow([blk["rank"], blk["block_row"], blk["block_col"], f"{blk['lat']:.5f}",
                         f"{blk['lon']:.5f}", f"{blk['mean_freq']:.4f}",
-                        f"{blk['max_depth_m']:.3f}", blk["nearest_known_spot"]])
+                        f"{blk['max_depth_m']:.3f}", blk["nearest_known_spot"]]
+                       + ([f"{blk['mean_peak_depth_m']:.3f}"] if peak else []))
 
     side = b * meta["cell_size_m"]
     print(f"{len(blocks)} blocks of {b} x {b} cells (~{side:.0f} m), wrote {out}")
-    print(f"top {min(a.top, len(blocks))} blocks by mean flood frequency:")
+    print(f"top {min(a.top, len(blocks))} blocks by "
+          f"{'mean peak depth' if peak else 'mean flood frequency'}:")
     print(f"{'rank':>4} {'blk_r':>5} {'blk_c':>5} {'lat':>9} {'lon':>9} {'mean_freq':>9} "
-          f"{'max_depth_m':>11}  nearest known spot (<1 km)")
+          f"{'peak_m':>6} {'max_depth_m':>11}  nearest known spot (<1 km)")
     for blk in blocks[:a.top]:
         print(f"{blk['rank']:>4} {blk['block_row']:>5} {blk['block_col']:>5} "
               f"{blk['lat']:>9.4f} {blk['lon']:>9.4f} {blk['mean_freq']:>9.4f} "
-              f"{blk['max_depth_m']:>11.2f}  {blk['nearest_known_spot']}")
+              f"{blk['mean_peak_depth_m']:>6.2f} {blk['max_depth_m']:>11.2f}  "
+              f"{blk['nearest_known_spot']}")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import csv
 import math
 import os
 import sys
+import textwrap
 
 import matplotlib
 
@@ -36,6 +37,8 @@ LAKE_COLOR = "#3f4a5a"   # slate: clearly not part of the blue -> red risk scale
 
 TITLE = "Bengaluru flood-risk map (screening, simple water model)"
 MAX_LABELLED = 15   # more known spots than this are drawn as small dots without names
+PEAK_MIN_M = 0.1    # --field maxdepth: shallower peaks are left transparent
+PEAK_MAX_M = 2.0    # --field maxdepth: colour scale top
 # Light blue -> orange -> dark red; lightness falls steadily, so it reads as one scale.
 RISK_CMAP = LinearSegmentedColormap.from_list(
     "risk", ["#b7d3f6", "#5598e7", "#eb6834", "#b3261e", "#5c0a0a"])
@@ -94,7 +97,7 @@ def load_osm(osm_dir, meta):
     return mpimg.imread(pic)
 
 
-def run_summary(results_dir):
+def run_summary(results_dir, with_drains=False):
     """One line describing the storms, from scenarios.csv (empty if it is missing)."""
     path = os.path.join(results_dir, "scenarios.csv")
     if not os.path.isfile(path):
@@ -105,8 +108,10 @@ def run_summary(results_dir):
         return ""
     ints = [float(r["intensity_mm_hr"]) for r in rows]
     durs = [float(r["duration_hr"]) for r in rows]
+    model = ("elevation + mapped drains, no buildings or soil" if with_drains
+             else "elevation only, no drains or buildings")
     return (f"{len(rows)} storms: {min(ints):g}-{max(ints):g} mm/h for {min(durs):g}-"
-            f"{max(durs):g} h  |  not a forecast; elevation only, no drains or buildings")
+            f"{max(durs):g} h  |  not a forecast; {model}")
 
 
 def main():
@@ -118,15 +123,19 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--lakes", default="",
                     help="lake mask (default: lakes_mask.bin next to --meta; 'none' = off)")
+    ap.add_argument("--field", choices=["freq", "maxdepth"], default="freq",
+                    help="freq = fraction of storms that flood the cell (risk_map.png); "
+                         "maxdepth = deepest water in any storm (peak_depth_map.png)")
     ap.add_argument("--basemap", choices=["auto", "osm", "hillshade", "none"], default="auto",
                     help="background: auto = OpenStreetMap if available, else hillshade")
     ap.add_argument("--osm-dir", default="data/raw/osm",
                     help="folder with basemap_muted.png + basemap.txt (osm_basemap.py)")
     a = ap.parse_args()
-    out = a.out or os.path.join(a.results_dir, "risk_map.png")
+    peak = a.field == "maxdepth"
+    out = a.out or os.path.join(a.results_dir, "peak_depth_map.png" if peak else "risk_map.png")
 
     meta = read_meta(a.meta)
-    freq = load_result(a.results_dir, "freq.bin", meta, a.meta)
+    freq = load_result(a.results_dir, "maxdepth.bin" if peak else "freq.bin", meta, a.meta)
     spots = load_spots(a.spots, meta, quiet=True)
     lakes = load_lakes(a.lakes, a.meta, meta)
     rows, cols, deg = meta["rows"], meta["cols"], meta["cell_deg"]
@@ -155,9 +164,11 @@ def main():
     else:
         print(f"note: {a.grid} not found, drawing without hillshade")
 
-    hide = freq <= 0.0 if lakes is None else (freq <= 0.0) | lakes
+    low = PEAK_MIN_M if peak else 0.0
+    hide = freq <= low if lakes is None else (freq <= low) | lakes
     shown = np.ma.masked_where(hide, freq)
-    im = ax.imshow(shown, cmap=RISK_CMAP, vmin=0.0, vmax=1.0, extent=extent,
+    im = ax.imshow(shown, cmap=RISK_CMAP, vmin=0.0, vmax=PEAK_MAX_M if peak else 1.0,
+                   extent=extent,
                    interpolation="nearest", alpha=0.9 if osm is not None else 1.0)
     lake_handle = None
     if lakes is not None:
@@ -168,7 +179,8 @@ def main():
         lake_handle = Line2D([], [], marker="s", ls="", markersize=8, mfc=LAKE_COLOR,
                              mec=LAKE_COLOR, label="lake (OpenStreetMap), not counted")
     cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02)
-    cb.set_label("fraction of storms in which the cell floods", fontsize=11)
+    cb.set_label(f"deepest water in any storm (m; {PEAK_MAX_M:g} m and more = darkest)"
+                 if peak else "fraction of storms in which the cell floods", fontsize=11)
 
     halo = [pe.withStroke(linewidth=3, foreground="white")]
     if len(spots) > MAX_LABELLED:          # many points: small dots, no names
@@ -210,21 +222,27 @@ def main():
     ax.set_aspect(1.0 / math.cos(math.radians(lat_mid)))  # 1 km looks the same both ways
     ax.set_xlabel("longitude (°E)", fontsize=11)
     ax.set_ylabel("latitude (°N)", fontsize=11)
-    ax.set_title(TITLE, fontsize=13, pad=22)
-    sub = run_summary(a.results_dir)
+    ax.set_title("Bengaluru flood-risk map: peak water depth (screening, simple model)"
+                 if peak else TITLE, fontsize=13, pad=22)
+    sub = run_summary(a.results_dir, "waterways burned" in meta["source"])
     if sub:
         ax.text(0.5, 1.012, sub, transform=ax.transAxes, ha="center", va="bottom",
                 fontsize=8.5, color="#52514e")
     credit = "\nbasemap (c) OpenStreetMap contributors" if osm is not None else ""
-    ax.text(0.0, -0.1, f"grid: {rows} x {cols} cells of {meta['cell_size_m']:g} m  |  "
-            f"{meta['source']}{credit}", transform=ax.transAxes, va="top", fontsize=7,
+    source = textwrap.fill(f"grid: {rows} x {cols} cells of {meta['cell_size_m']:g} m  |  "
+                           f"{meta['source']}", 120)
+    ax.text(0.0, -0.1, source + credit, transform=ax.transAxes, va="top", fontsize=7,
             color="#52514e")
     ax.tick_params(labelsize=9)
 
     fig.tight_layout()
     fig.savefig(out, dpi=200, bbox_inches="tight", pad_inches=0.15)
-    print(f"wrote {out} ({np.count_nonzero(freq > 0)} of {freq.size} cells flood at least "
-          f"once, max frequency {float(freq.max()):.3f})")
+    if peak:
+        print(f"wrote {out} ({np.count_nonzero(freq > PEAK_MIN_M)} of {freq.size} cells reach "
+              f"more than {PEAK_MIN_M:g} m in some storm, deepest {float(freq.max()):.2f} m)")
+    else:
+        print(f"wrote {out} ({np.count_nonzero(freq > 0)} of {freq.size} cells flood at least "
+              f"once, max frequency {float(freq.max()):.3f})")
 
 
 if __name__ == "__main__":

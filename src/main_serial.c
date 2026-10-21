@@ -14,7 +14,7 @@
 typedef struct {
     const char *grid, *meta, *out;
     int n_int, n_dur, limit;
-    double int_min, int_max, dur_min, dur_max, threshold;
+    double int_min, int_max, dur_min, dur_max, threshold, loss;
 } Args;
 
 static double now_s(void)
@@ -32,13 +32,14 @@ static void usage(void)
             "         [--intensity-min 10] [--intensity-max 100]   (mm/hr)\n"
             "         [--duration-min 1] [--duration-max 6]        (hours)\n"
             "         [--threshold 0.3] [--mode dynamic|static (ignored)]\n"
+            "         [--loss 0]                                 (mm/hr soaked up)\n"
             "         [--limit 0] [--out results/]\n");
 }
 
 static int parse_args(int argc, char **argv, Args *a)
 {
     *a = (Args){"data/grid.bin", "data/grid.meta", "results/", 20, 20, 0,
-                10.0, 100.0, 1.0, 6.0, 0.3};
+                10.0, 100.0, 1.0, 6.0, 0.3, 0.0};
     for (int i = 1; i < argc; i++) {
         const char *k = argv[i];
         if (i + 1 >= argc) {
@@ -56,6 +57,7 @@ static int parse_args(int argc, char **argv, Args *a)
         else if (!strcmp(k, "--duration-min")) a->dur_min = atof(v);
         else if (!strcmp(k, "--duration-max")) a->dur_max = atof(v);
         else if (!strcmp(k, "--threshold")) a->threshold = atof(v);
+        else if (!strcmp(k, "--loss")) a->loss = atof(v);
         else if (!strcmp(k, "--limit")) a->limit = atoi(v);
         else if (!strcmp(k, "--mode")) { /* serial runner ignores the mode */ }
         else {
@@ -162,8 +164,10 @@ int main(int argc, char **argv)
         int ii = id / a.n_dur, id_ = id % a.n_dur;
         Scenario sc = {spaced(a.int_min, a.int_max, a.n_int, ii),
                        spaced(a.dur_min, a.dur_max, a.n_dur, id_)};
+        Scenario eff = sc;     /* --loss: see the note in mpi_main.c (same arithmetic) */
+        eff.intensity_mm_hr = fmaxf(0.0f, sc.intensity_mm_hr - (float)a.loss);
         double t0 = now_s();
-        SimStats st = sim_run_scenario(s, sc, (float)a.threshold, flood_count, max_depth);
+        SimStats st = sim_run_scenario(s, eff, (float)a.threshold, flood_count, max_depth);
         double dt = now_s() - t0;
         busy += dt;
         rows[id] = (Row){sc.intensity_mm_hr, sc.duration_hr, st, dt};
